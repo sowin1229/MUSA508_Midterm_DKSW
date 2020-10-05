@@ -152,22 +152,19 @@ multipleRingBuffer <- function(inputPolygon, maxDistance, interval)
 
 #read data for zip codes and isolate zipcodes in correct area
 zipcodes <- st_read("https://opendata.arcgis.com/datasets/fee863cb3da0417fa8b5aaf6b671f8a7_0.geojson") %>%   
-  st_transform('ESRI:102286') %>%  select(OBJECTID, PZIPCODEID, ZIP, ZIPCODE, SHAPE_Length, SHAPE_Area, geometry)%>% 
+  st_transform('ESRI:102658') %>%  select(OBJECTID, PZIPCODEID, ZIP, ZIPCODE, SHAPE_Length, SHAPE_Area, geometry)%>% 
   filter(ZIPCODE %in% c("33134","33146", "33139", "33140", "33141", "33154", "33138", "33137", "33150","33151", "33153", "33127", "33136", "33128", "33130", "33129", "33133", "33145", "33135", "33125", "33142", "33147", "33126", "33144", "33155", "33143"))
 #create shapefile of zipcodes
 zipcode_sf <- zipcodes %>% st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326, agr = "constant") %>%
-                                      st_transform('ESRI:102286')
+                                      st_transform('ESRI:102658')
 
 #Load housing data 
 miamidata <- read_sf("~/GitHub/MUSA508_Midterm_DKSW/studentsData (1).geojson")%>%
   mutate(Price_PerSqFt = Assessed/ActualSqFt)
-#Pricepersquarefoot
-
-
 
 #create shapefile using Miami data that was just created from the geojson 
 miamisf <- miamidata %>% st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326, agr = "constant") %>%
-  st_transform('ESRI:102286')
+  st_transform('ESRI:102658')
 
 #plot zipcodes & housing data
 ggplot() +
@@ -183,25 +180,35 @@ ggplot() +
 
 #other data: beaches
 beaches <- st_read("https://opendata.arcgis.com/datasets/9e30807e3efd44f3b16ab8d3657249f2_0.geojson")%>%
-  st_transform('ESRI:102286') %>%
+  st_transform('ESRI:102658') %>%
   select(FID, NAME, ADDRESS, CITY, ZIPCODE, PHONE, OWNER, TOTALACRE,TYPE, WEBSITE, LAT, LON, POINT_X, POINT_Y, geometry)%>%
   filter(CITY %in% c("Miami", "Miami Beach"))
 beachpoints <- beaches %>% st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326, agr = "constant") %>%
-  st_transform('ESRI:102286')
+  st_transform('ESRI:ESRI:102658')
 
-beachbuffer <-  st_buffer(beachpoints, 5280) %>%
+#CreateBuffer
+beachbuffer <-  st_buffer(beachpoints, 2640) %>%
   mutate(Legend = "Buffer") %>%
-  dplyr::select(Legend)
+  dplyr::select(Legend) %>% 
+  st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326, agr = "constant") %>%
+  st_transform('ESRI:102658')
+
+beachbufferunion <-st_union(st_buffer(beachbuffer, 2640)) %>%
+  st_sf() %>%
+  mutate(Legend = "Unioned Buffer")
 
 ggplot() +
-  geom_sf(data=beachbuffer) +
+  geom_sf(data=zipcode_sf)+
+  geom_sf(data=beachbufferunion, fill = "transparent") +
   geom_sf(data=beachpoints, show.legend = "point") +
   facet_wrap(~Legend) +
   mapTheme()
 
 ggplot() +
   geom_sf(data = zipcode_sf, fill = "white") +
-  geom_sf(data = beachpoints, fill = "blue") +
+  geom_sf(data=miamidata, aes(colour = q5(Price_PerSqFt)))+
+  geom_sf(data = beachpoints) +
+  geom_sf(data = beachbufferunion, fill = "transparent") +
   geom_sf(data = miamisf, aes(colour = q5(Price_PerSqFt)), 
           show.legend = "point", size = .75) +
   scale_colour_manual(values = palette5,
@@ -211,5 +218,87 @@ ggplot() +
   mapTheme()
 
 
-#JOIN ZIP DATA AND STUDENT DATA
+#FROM KENS BOOK: Mapping Variable Denisty ... beaches
+beachpoints2 <-
+  beaches %>%
+  dplyr::select(LAT, LON) %>%
+  na.omit() %>%
+  st_as_sf(coords = c("LON", "LAT"), crs = 4326, agr = "constant") %>%
+  st_transform('ESRI:102658') %>%
+  distinct()
 
+ggplot() + geom_sf(data = zipcode_sf, fill = "white") +
+  stat_density2d(data = data.frame(st_coordinates(beachpoints2)), 
+                 aes(X, Y, fill = ..level.., alpha = ..level..),
+                 size = 0.01, bins = 40, geom = 'polygon') +
+  scale_fill_gradient(low = "#25CB10", high = "#FA7800", name = "Density") +
+  scale_alpha(range = c(0.00, 0.35), guide = FALSE) +
+  labs(title = "Density of Beaches") +
+  mapTheme()
+
+#measure distance to beach - house to beach
+nn_function <- function(measureFrom,measureTo,k) {
+  measureFrom_Matrix <- as.matrix(measureFrom)
+  measureTo_Matrix <- as.matrix(measureTo)
+  nn <-   
+    get.knnx(measureTo, measureFrom, k)$nn.dist
+  output <-
+    as.data.frame(nn) %>%
+    rownames_to_column(var = "thisPoint") %>%
+    gather(points, point_distance, V1:ncol(.)) %>%
+    arrange(as.numeric(thisPoint)) %>%
+    group_by(thisPoint) %>%
+    summarize(pointDistance = mean(point_distance)) %>%
+    arrange(as.numeric(thisPoint)) %>% 
+    dplyr::select(-thisPoint) %>%
+    pull()
+  return(output)  
+}
+  
+  st_c <- st_coordinates
+  miamisf <-
+    miamisf %>% 
+    mutate(
+      beach_nn1 = nn_function(st_c(miamisf), st_c(beachpoints2), 1),
+      beach_nn2 = nn_function(st_c(miamisf), st_c(beachpoints2), 2))
+      
+      
+      
+
+##miamisf$beachbuffer =
+  st_buffer(miamisf, 660) %>%
+  aggregate(mutate(beachpoints2, counter = 1),., sum) %>%
+  pull(counter)
+
+nn_function <- function(measureFrom,measureTo,k) {
+  measureFrom_Matrix <- as.matrix(measureFrom)
+  measureTo_Matrix <- as.matrix(measureTo)
+  nn <-   
+    get.knnx(measureTo, measureFrom, k)$nn.dist
+  output <-
+    as.data.frame(nn) %>%
+    rownames_to_column(var = "thisPoint") %>%
+    gather(points, point_distance, V1:ncol(.)) %>%
+    arrange(as.numeric(thisPoint)) %>%
+    group_by(thisPoint) %>%
+    summarize(pointDistance = mean(point_distance)) %>%
+    arrange(as.numeric(thisPoint)) %>% 
+    dplyr::select(-thisPoint) %>%
+    pull()
+  
+  return(output)  
+}
+
+
+
+#JOIN ZIP DATA AND STUDENT DATA
+alldatamiami <- st_join(miamisf, zipcode_sf, left = TRUE)
+
+ggplot()+
+  geom_sf(data=alldatamiami, aes(colour = q5(ActualSqFt)),
+          show.legend = "point", size = .75)+
+  scale_colour_manual(values = palette5,
+                      labels=qBr(miamidata,"ActualSqFt"),
+                      name="Quintile\nBreaks") +
+  labs(title="Price Per Sq Ft & Beaches") +
+  mapTheme()
