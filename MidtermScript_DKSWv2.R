@@ -129,7 +129,7 @@ ggplot() +
 #water
 water <- read_sf("Water.geojson") %>%
   st_transform('ESRI:102658')
-mapview(water)
+mapview(water, zcol='TYPE')
 
 ##Filter out water that is not part of ocean bay
 waterbay<- water %>% 
@@ -154,27 +154,28 @@ miamisf <-
 
 
 #Trader Joes and Whole Foods
-TJWF <- st_read("TJWF.csv")
+TJWF <- read.csv("TJWF.csv")
 
-TJWF    <- TJWF %>% 
+
+TJWF <- TJWF %>% 
   st_as_sf(coords = c("long", "lat"), crs = 4326, agr = "constant") %>%
   st_transform('ESRI:102658') 
 
-mapview(TJWF)
+mapview(list(TJWF, miamisf))
 
 
 #Nearest "neighbor" homes to TJs and WFs distance
 ## Nearest Neighbor Feature
-
-st_c <- st_coordinates
 
 miamisf <- 
   miamisf %>% 
   mutate(
     tjwf_nn1 = nn_function(
       st_coordinates(st_centroid(miamisf)), 
-      st_coordinates(st_centroid(TJWF)),
+      st_coordinates((TJWF)),
       1))
+
+summary(miamisf)
 
 #parks
 parks <- read_sf("County_Park_Boundary.geojson") %>%
@@ -182,10 +183,10 @@ parks <- read_sf("County_Park_Boundary.geojson") %>%
 mapview(parks)
 
 #THIS ALSO DID NOT WORK
-# # Counts of parks per buffer of house sale 
-# miamisf$park.buffer =
-#   st_buffer(miamisf, 660) %>% 
-#   aggregate(mutate(parks, counter = 1),., sum) %>%
+# Counts of parks per buffer of house sale 
+ miamisf$park.buffer =
+   st_buffer(miamisf, 660) %>% 
+   aggregate(mutate(parks, counter = 1),., sum) %>%
 #   pull(counter)
 
 
@@ -305,7 +306,7 @@ mapview(allschools)
 
 ggplot()+
   geom_sf(data = zipcode_sf, fill = "white") +
-  geom_sf(data=alldatamiami, aes(colour = q5(ActualSqFt)),
+  geom_sf(data=miamisf, aes(colour = q5(ActualSqFt)),
           show.legend = "point", size = .75)+
   geom_sf(data=allschools, size = 1, shape = 21, fill = "darkred")+
   scale_colour_manual(values = palette5,
@@ -324,7 +325,7 @@ mapview(list(mschools, miamisf))
 
 ggplot()+
   geom_sf(data = zipcode_sf, fill = "white") +
-  geom_sf(data=alldatamiami, aes(colour = q5(ActualSqFt)),
+  geom_sf(data=miamisf, aes(colour = q5(ActualSqFt)),
           show.legend = "point", size = .75)+
   geom_sf(data=mschools, size = 1, shape = 21, fill = "darkred")+
   scale_colour_manual(values = palette5,
@@ -356,9 +357,21 @@ mtracts <- st_intersection(tracts, boundary)
 
 alldatamiami <- st_join(alldatamiami, mtracts, left = TRUE)
 
+ggplot()+
+  geom_sf(data = mtracts, fill = "white") +
+  geom_sf(data=alldatamiami, aes(colour = q5(ActualSqFt)),
+          show.legend = "point", size = .75)+
+  scale_colour_manual(values = palette5,
+                      labels=qBr(miamidata,"ActualSqFt"),
+                      name="Quintile\nBreaks") +
+  labs(title="Price Per Sq Ft & Beaches") +
+  mapTheme()
+
 #Opportunity Insights Data 
 oppinsights <- read_sf("OppInsights.csv")
-#How to join with alldatamiami
+
+#join oppinsights with alldatamiami
+alldatamiami <-alldatamiami %>% left_join(oppinsights, by = c("GEOID10" = "GEOID"))
 
 #Can I drop unnecessary variables?
 
